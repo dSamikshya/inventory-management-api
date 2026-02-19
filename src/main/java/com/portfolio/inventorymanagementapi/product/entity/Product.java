@@ -1,11 +1,9 @@
 package com.portfolio.inventorymanagementapi.product.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
@@ -13,13 +11,23 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Product Entity
+ *
+ * Stock tracking strategy:
+ *  - totalQuantity and averageCostPrice are @Formula fields — they are
+ *    computed at query time directly from product_batches.
+ *  - NEVER call setTotalQuantity / setAverageCostPrice from service code.
+ *    They do not persist. All changes must go through ProductBatch.
+ */
 @Entity
 @Table(name = "products", indexes = {
-        @Index(name = "idx_sku", columnList = "sku"),
-        @Index(name = "idx_barcode", columnList = "barcode"),
+        @Index(name = "idx_sku",      columnList = "sku",         unique = true),
+        @Index(name = "idx_barcode",  columnList = "barcode"),
         @Index(name = "idx_category", columnList = "category_id")
 })
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -29,11 +37,15 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 200)
-    private String name;
-
+    /**
+     * SKU uniquely identifies a product variant.
+     * Example: IP12-128-BLK (iPhone 12, 128GB, Black)
+     */
     @Column(unique = true, nullable = false, length = 100)
     private String sku;
+
+    @Column(nullable = false, length = 200)
+    private String name;
 
     @Column(length = 1000)
     private String description;
@@ -46,20 +58,38 @@ public class Product {
     private String barcode;
 
     @Column(precision = 10, scale = 2)
-    private BigDecimal weight; // in kg
+    private BigDecimal weight;
 
-    @Column(nullable = false)
-    private Integer totalQuantity = 0;
+    /**
+     * READ-ONLY — computed from product_batches at query time.
+     * Do NOT call setTotalQuantity(); it has no effect in the DB.
+     */
+    @Formula("(SELECT COALESCE(SUM(pb.remaining_quantity), 0) " +
+            "FROM product_batches pb WHERE pb.product_id = id)")
+    private Integer totalQuantity;
 
+    /**
+     * READ-ONLY — weighted-average cost computed from product_batches.
+     * Do NOT call setAverageCostPrice(); it has no effect in the DB.
+     */
+    @Formula("(SELECT COALESCE(" +
+            "  SUM(pb.cost_price * pb.remaining_quantity) / NULLIF(SUM(pb.remaining_quantity), 0)" +
+            ", 0) FROM product_batches pb WHERE pb.product_id = id)")
+    private BigDecimal averageCostPrice;
+
+    @Builder.Default
     @Column(nullable = false)
     private Integer reorderThreshold = 10;
 
-    @Column(precision = 10, scale = 2, nullable = false)
-    private BigDecimal averageCostPrice = BigDecimal.ZERO;
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean active = true;
 
-    @Column(precision = 10, scale = 2, nullable = false)
+    @Builder.Default
+    @Column(name = "selling_price", precision = 10, scale = 2, nullable = false)
     private BigDecimal sellingPrice = BigDecimal.ZERO;
 
+    @Builder.Default
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProductBatch> batches = new ArrayList<>();
 
@@ -71,9 +101,10 @@ public class Product {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
-    // Helper methods
+    // ==================== HELPERS ====================
+
     public boolean isLowStock() {
-        return totalQuantity <= reorderThreshold;
+        return totalQuantity != null && totalQuantity <= reorderThreshold;
     }
 
     public void addBatch(ProductBatch batch) {

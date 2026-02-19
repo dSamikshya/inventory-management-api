@@ -1,6 +1,5 @@
 package com.portfolio.inventorymanagementapi.product.service;
 
-
 import com.portfolio.inventorymanagementapi.product.dto.ProductBatchRequest;
 import com.portfolio.inventorymanagementapi.product.dto.ProductBatchResponse;
 import com.portfolio.inventorymanagementapi.product.dto.ProductRequest;
@@ -11,98 +10,44 @@ import com.portfolio.inventorymanagementapi.product.entity.ProductBatch;
 import com.portfolio.inventorymanagementapi.product.repository.CategoryRepository;
 import com.portfolio.inventorymanagementapi.product.repository.ProductBatchRepository;
 import com.portfolio.inventorymanagementapi.product.repository.ProductRepository;
+import com.portfolio.inventorymanagementapi.supplier.entity.Supplier;
+import com.portfolio.inventorymanagementapi.supplier.service.SupplierService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductBatchRepository productBatchRepository;
+    private final SupplierService supplierService;
 
-    @Cacheable(value = "products", key = "#id")
-    @Transactional(readOnly = true)
-    public ProductResponse getProductById(Long id) {
-        log.debug("Fetching product with id: {}", id);
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-        return mapToResponse(product);
-    }
+    // ==================== PRODUCT CRUD ====================
 
-    @Transactional(readOnly = true)
-    public ProductResponse getProductBySku(String sku) {
-        log.debug("Fetching product with SKU: {}", sku);
-        Product product = productRepository.findBySku(sku)
-                .orElseThrow(() -> new RuntimeException("Product not found with SKU: " + sku));
-        return mapToResponse(product);
-    }
-
-    @Transactional(readOnly = true)
-    public Page<ProductResponse> getAllProducts(Pageable pageable) {
-        log.debug("Fetching all products with pagination");
-        return productRepository.findAll(pageable)
-                .map(this::mapToResponse);
-    }
-
-    @Transactional(readOnly = true)
-    public Page<ProductResponse> searchProducts(String search, Pageable pageable) {
-        log.debug("Searching products with query: {}", search);
-        return productRepository.searchProducts(search, pageable)
-                .map(this::mapToResponse);
-    }
-
-    @Transactional(readOnly = true)
-    public Page<ProductResponse> getProductsByCategory(Long categoryId, Pageable pageable) {
-        log.debug("Fetching products for category: {}", categoryId);
-        return productRepository.findByCategoryId(categoryId, pageable)
-                .map(this::mapToResponse);
-    }
-
-    @Transactional(readOnly = true)
-    public List<ProductResponse> getLowStockProducts() {
-        log.debug("Fetching low stock products");
-        return productRepository.findLowStockProducts()
-                .stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-    }
-
-    @Transactional(readOnly = true)
-    public Long getLowStockCount() {
-        return productRepository.countLowStockProducts();
-    }
-
+    @Transactional
     @CacheEvict(value = "products", allEntries = true)
     public ProductResponse createProduct(ProductRequest request) {
-        log.info("Creating new product with SKU: {}", request.getSku());
-
-        // Validation
         if (productRepository.existsBySku(request.getSku())) {
-            throw new RuntimeException("Product with SKU " + request.getSku() + " already exists");
+            throw new RuntimeException("Product with SKU '" + request.getSku() + "' already exists");
         }
 
-        if (request.getBarcode() != null && productRepository.existsByBarcode(request.getBarcode())) {
-            throw new RuntimeException("Product with barcode " + request.getBarcode() + " already exists");
-        }
-
-        // Build product
         Product product = Product.builder()
                 .name(request.getName())
                 .sku(request.getSku())
@@ -110,145 +55,324 @@ public class ProductService {
                 .barcode(request.getBarcode())
                 .weight(request.getWeight())
                 .sellingPrice(request.getSellingPrice())
-                .reorderThreshold(request.getReorderThreshold())
-                .totalQuantity(0)
-                .averageCostPrice(BigDecimal.ZERO)
+                .reorderThreshold(request.getReorderThreshold() != null ? request.getReorderThreshold() : 10)
                 .build();
 
-        // Set category if provided
         if (request.getCategoryId() != null) {
             Category category = categoryRepository.findById(request.getCategoryId())
                     .orElseThrow(() -> new RuntimeException("Category not found with id: " + request.getCategoryId()));
             product.setCategory(category);
         }
 
-        Product saved = productRepository.save(product);
-        log.info("Product created successfully with id: {}", saved.getId());
-
-        return mapToResponse(saved);
+        return mapToResponse(productRepository.save(product));
     }
 
-    @Caching(evict = {
-            @CacheEvict(value = "products", key = "#id"),
-            @CacheEvict(value = "products", allEntries = true)
-    })
+    @Transactional(readOnly = true)
+    @Cacheable(value = "products", key = "#id")
+    public ProductResponse getProductById(Long id) {
+        Product product = findProductById(id);
+        return mapToResponse(product);
+    }
+
+    @Transactional(readOnly = true)
+    public ProductResponse getProductBySku(String sku) {
+        Product product = productRepository.findBySku(sku)
+                .orElseThrow(() -> new RuntimeException("Product not found with SKU: " + sku));
+        return mapToResponse(product);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductResponse> getAllProducts(Pageable pageable) {
+        return productRepository.findAll(pageable).map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductResponse> searchProducts(String searchTerm, Pageable pageable) {
+        return productRepository.searchProducts(searchTerm, pageable).map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProductResponse> getProductsByCategory(Long categoryId, Pageable pageable) {
+        return productRepository.findByCategoryId(categoryId, pageable).map(this::mapToResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductResponse> getLowStockProducts() {
+        return productRepository.findLowStockProducts()
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public long getLowStockCount() {
+        return productRepository.countLowStockProducts();
+    }
+
+    @Transactional
+    @CacheEvict(value = "products", key = "#id")
     public ProductResponse updateProduct(Long id, ProductRequest request) {
-        log.info("Updating product with id: {}", id);
+        Product product = findProductById(id);
 
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
+        // SKU is immutable after creation — skip if not changing
+        if (!product.getSku().equals(request.getSku()) && productRepository.existsBySku(request.getSku())) {
+            throw new RuntimeException("Product with SKU '" + request.getSku() + "' already exists");
+        }
 
-        // Update fields
         product.setName(request.getName());
         product.setDescription(request.getDescription());
         product.setSellingPrice(request.getSellingPrice());
-        product.setReorderThreshold(request.getReorderThreshold());
+        product.setReorderThreshold(request.getReorderThreshold() != null ? request.getReorderThreshold() : 10);
         product.setWeight(request.getWeight());
+        product.setBarcode(request.getBarcode());
 
-        // Update barcode if changed
-        if (request.getBarcode() != null && !request.getBarcode().equals(product.getBarcode())) {
-            if (productRepository.existsByBarcode(request.getBarcode())) {
-                throw new RuntimeException("Product with barcode " + request.getBarcode() + " already exists");
-            }
-            product.setBarcode(request.getBarcode());
-        }
-
-        // Update category if provided
         if (request.getCategoryId() != null) {
             Category category = categoryRepository.findById(request.getCategoryId())
                     .orElseThrow(() -> new RuntimeException("Category not found with id: " + request.getCategoryId()));
             product.setCategory(category);
         }
 
-        Product updated = productRepository.save(product);
-        log.info("Product updated successfully");
-
-        return mapToResponse(updated);
+        return mapToResponse(productRepository.save(product));
     }
 
-    @Caching(evict = {
-            @CacheEvict(value = "products", key = "#id"),
-            @CacheEvict(value = "products", allEntries = true)
-    })
+    @Transactional
+    @CacheEvict(value = "products", key = "#id")
     public void deleteProduct(Long id) {
-        log.info("Deleting product with id: {}", id);
+        Product product = findProductById(id);
 
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
-
-        // Check if product has remaining stock
-        if (product.getTotalQuantity() > 0) {
-            throw new RuntimeException("Cannot delete product with remaining stock. Current quantity: " + product.getTotalQuantity());
+        Integer qty = product.getTotalQuantity();
+        if (qty != null && qty > 0) {
+            throw new RuntimeException(
+                    "Cannot delete product with remaining stock (" + qty + " units). " +
+                            "Clear all batches first.");
         }
 
         productRepository.delete(product);
-        log.info("Product deleted successfully");
+        log.info("Product deleted: id={}, sku={}", id, product.getSku());
     }
 
-    // Batch management methods
+    // ==================== BATCH CRUD ====================
+
+    /**
+     * Create a batch for an existing product (productId required).
+     */
+    @Transactional
+    public ProductBatchResponse createProductBatch(ProductBatchRequest request) {
+        if (request.getProductId() == null) {
+            throw new RuntimeException("productId is required. Use the /smart endpoint to auto-create products.");
+        }
+
+        Product product = findProductById(request.getProductId());
+        Supplier supplier = supplierService.findOrCreateSupplier(request.getSupplierName());
+
+        ProductBatch batch = buildBatch(request, product, supplier);
+        return mapBatchToResponse(productBatchRepository.save(batch));
+    }
+
+    /**
+     * Smart batch creation — resolves or creates product, category, and supplier automatically.
+     */
+    @Transactional
+    public ProductBatchResponse createBatchSmart(ProductBatchRequest request) {
+        Product product = resolveOrCreateProduct(request);
+        Supplier supplier = supplierService.findOrCreateSupplier(request.getSupplierName());
+
+        ProductBatch batch = buildBatch(request, product, supplier);
+        ProductBatch saved = productBatchRepository.save(batch);
+
+        log.info("Smart batch created: batchId={}, productSku={}, qty={}",
+                saved.getId(), product.getSku(), saved.getQuantity());
+
+        return mapBatchToResponse(saved);
+    }
+
     @Transactional(readOnly = true)
-    public List<ProductBatchResponse> getProductBatches(Long productId) {
-        log.debug("Fetching batches for product: {}", productId);
+    public Page<ProductBatchResponse> getAllBatches(int page, int size, String sortBy, String direction) {
+        Sort sort = direction.equalsIgnoreCase("desc")
+                ? Sort.by(sortBy).descending()
+                : Sort.by(sortBy).ascending();
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return productBatchRepository.findAll(pageable).map(this::mapBatchToResponse);
+    }
 
-        // Verify product exists
-        productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
+    @Transactional(readOnly = true)
+    public ProductBatchResponse getProductBatchById(Long batchId) {
+        return mapBatchToResponse(findBatchById(batchId));
+    }
 
+    @Transactional(readOnly = true)
+    public List<ProductBatchResponse> getBatchesByProduct(Long productId) {
         return productBatchRepository.findByProductId(productId)
-                .stream()
-                .map(this::mapBatchToResponse)
-                .collect(Collectors.toList());
+                .stream().map(this::mapBatchToResponse).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<ProductBatchResponse> getAvailableBatches(Long productId) {
-        log.debug("Fetching available batches for product: {}", productId);
-
         return productBatchRepository.findAvailableBatchesByProductId(productId)
-                .stream()
-                .map(this::mapBatchToResponse)
-                .collect(Collectors.toList());
+                .stream().map(this::mapBatchToResponse).collect(Collectors.toList());
     }
 
-    // Stock management
-    @CacheEvict(value = "products", key = "#productId")
-    public void updateStock(Long productId, Integer quantityChange) {
-        log.info("Updating stock for product: {} by {}", productId, quantityChange);
+    @Transactional(readOnly = true)
+    public List<ProductBatchResponse> getExpiringBatches(int daysAhead) {
+        LocalDateTime targetDate = LocalDateTime.now().plusDays(daysAhead);
+        return productBatchRepository.findBatchesExpiringBefore(targetDate)
+                .stream().map(this::mapBatchToResponse).collect(Collectors.toList());
+    }
 
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
+    @Transactional(readOnly = true)
+    public List<ProductBatchResponse> getExpiredBatches() {
+        return productBatchRepository.findExpiredBatches()
+                .stream().map(this::mapBatchToResponse).collect(Collectors.toList());
+    }
 
-        int newQuantity = product.getTotalQuantity() + quantityChange;
-        if (newQuantity < 0) {
-            throw new RuntimeException("Insufficient stock. Available: " + product.getTotalQuantity() + ", Required: " + Math.abs(quantityChange));
+    @Transactional(readOnly = true)
+    public List<ProductBatchResponse> getBatchesBySupplier(Long supplierId) {
+        return productBatchRepository.findBySupplierId(supplierId)
+                .stream().map(this::mapBatchToResponse).collect(Collectors.toList());
+    }
+
+    /**
+     * Update a batch — only metadata fields are editable.
+     * Quantity changes are reflected immediately via @Formula on the product.
+     */
+    @Transactional
+    public ProductBatchResponse updateProductBatch(Long batchId, ProductBatchRequest request) {
+        ProductBatch batch = findBatchById(batchId);
+
+        batch.setQuantity(request.getQuantity());
+        batch.setRemainingQuantity(request.getQuantity());
+        batch.setCostPrice(request.getCostPrice());
+        batch.setSellingPrice(request.getSellingPrice());
+        batch.setExpiryDate(request.getExpiryDate() != null ? request.getExpiryDate().atStartOfDay() : null);
+        batch.setNotes(request.getNotes());
+        batch.setPurchaseOrderId(request.getPurchaseOrderId());
+
+        if (request.getSupplierName() != null) {
+            batch.setSupplier(supplierService.findOrCreateSupplier(request.getSupplierName()));
         }
 
-        product.setTotalQuantity(newQuantity);
-        productRepository.save(product);
-
-        log.info("Stock updated. New quantity: {}", newQuantity);
+        return mapBatchToResponse(productBatchRepository.save(batch));
     }
 
-    @CacheEvict(value = "products", key = "#productId")
-    public void updateAverageCostPrice(Long productId, BigDecimal newCostPrice, Integer quantity) {
-        log.info("Updating average cost price for product: {}", productId);
-
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found with id: " + productId));
-
-        BigDecimal currentTotal = product.getAverageCostPrice().multiply(new BigDecimal(product.getTotalQuantity()));
-        BigDecimal newTotal = newCostPrice.multiply(new BigDecimal(quantity));
-        BigDecimal combinedTotal = currentTotal.add(newTotal);
-        BigDecimal totalQuantity = new BigDecimal(product.getTotalQuantity() + quantity);
-
-        BigDecimal newAverage = combinedTotal.divide(totalQuantity, 2, RoundingMode.HALF_UP);
-        product.setAverageCostPrice(newAverage);
-
-        productRepository.save(product);
-        log.info("Average cost price updated to: {}", newAverage);
+    @Transactional
+    public void deleteProductBatch(Long batchId) {
+        ProductBatch batch = findBatchById(batchId);
+        // Stock is automatically recalculated via @Formula after deletion
+        productBatchRepository.delete(batch);
+        log.info("Batch deleted: id={}", batchId);
     }
 
-    // Mapper methods
+    @Transactional
+    public List<ProductBatchResponse> createBatchesBulk(List<ProductBatchRequest> requests) {
+        List<ProductBatchResponse> responses = new ArrayList<>();
+        for (ProductBatchRequest request : requests) {
+            try {
+                responses.add(createProductBatch(request));
+            } catch (Exception e) {
+                log.error("Failed to create batch for productId={}: {}", request.getProductId(), e.getMessage());
+            }
+        }
+        return responses;
+    }
+
+    // ==================== INTERNAL HELPERS ====================
+
+    /**
+     * Resolve product by id → sku → name, or create a new one.
+     */
+    private Product resolveOrCreateProduct(ProductBatchRequest request) {
+        if (request.getProductId() != null) {
+            return findProductById(request.getProductId());
+        }
+
+        if (request.getProductSku() != null && !request.getProductSku().isBlank()) {
+            Optional<Product> bySku = productRepository.findBySku(request.getProductSku());
+            if (bySku.isPresent()) {
+                log.debug("Found existing product by SKU: {}", request.getProductSku());
+                return bySku.get();
+            }
+        }
+
+        if (request.getProductName() != null && !request.getProductName().isBlank()) {
+            Optional<Product> byName = productRepository.findByName(request.getProductName());
+            if (byName.isPresent()) {
+                log.debug("Found existing product by name: {}", request.getProductName());
+                return byName.get();
+            }
+        }
+
+        if (request.getProductName() == null || request.getProductName().isBlank()) {
+            throw new RuntimeException("Product name is required when creating a new product");
+        }
+
+        return createProductFromBatchRequest(request);
+    }
+
+    private Product createProductFromBatchRequest(ProductBatchRequest request) {
+        if (request.getCategoryName() == null || request.getCategoryName().isBlank()) {
+            throw new RuntimeException("Category name is required when creating a new product");
+        }
+
+        Category category = categoryRepository.findByName(request.getCategoryName())
+                .orElseGet(() -> {
+                    log.info("Auto-creating category: {}", request.getCategoryName());
+                    Category c = new Category();
+                    c.setName(request.getCategoryName());
+                    c.setDescription(request.getCategoryDescription() != null
+                            ? request.getCategoryDescription()
+                            : "Auto-created from batch import");
+                    return categoryRepository.save(c);
+                });
+
+        Product product = Product.builder()
+                .sku(request.getProductSku() != null && !request.getProductSku().isBlank()
+                        ? request.getProductSku()
+                        : generateSku(request.getProductName()))
+                .name(request.getProductName())
+                .description(request.getProductDescription())
+                .category(category)
+                .sellingPrice(request.getSellingPrice())
+                .build();
+
+        Product saved = productRepository.save(product);
+        log.info("Auto-created product: sku={}, name={}", saved.getSku(), saved.getName());
+        return saved;
+    }
+
+    private ProductBatch buildBatch(ProductBatchRequest request, Product product, Supplier supplier) {
+        return ProductBatch.builder()
+                .product(product)
+                .supplier(supplier)
+                .purchaseOrderId(request.getPurchaseOrderId())
+                .quantity(request.getQuantity())
+                .remainingQuantity(request.getQuantity())
+                .costPrice(request.getCostPrice())
+                .sellingPrice(request.getSellingPrice())
+                .expiryDate(request.getExpiryDate() != null ? request.getExpiryDate().atStartOfDay() : null)
+                .notes(request.getNotes())
+                .build();
+    }
+
+    private String generateSku(String productName) {
+        String base = productName.toUpperCase()
+                .replaceAll("[^A-Z0-9]", "-")
+                .replaceAll("-+", "-");
+        if (base.length() > 20) base = base.substring(0, 20);
+        return base.replaceAll("-$", "") + "-" + System.currentTimeMillis();
+    }
+
+    private Product findProductById(Long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found with id: " + id));
+    }
+
+    private ProductBatch findBatchById(Long id) {
+        return productBatchRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Batch not found with id: " + id));
+    }
+
+    // ==================== MAPPING ====================
+
     private ProductResponse mapToResponse(Product product) {
         return ProductResponse.builder()
                 .id(product.getId())
@@ -260,9 +384,10 @@ public class ProductService {
                 .barcode(product.getBarcode())
                 .weight(product.getWeight())
                 .totalQuantity(product.getTotalQuantity())
-                .reorderThreshold(product.getReorderThreshold())
                 .averageCostPrice(product.getAverageCostPrice())
                 .sellingPrice(product.getSellingPrice())
+                .reorderThreshold(product.getReorderThreshold())
+                .active(product.isActive())
                 .isLowStock(product.isLowStock())
                 .batchCount(product.getBatches() != null ? product.getBatches().size() : 0)
                 .createdAt(product.getCreatedAt())
@@ -270,62 +395,29 @@ public class ProductService {
                 .build();
     }
 
-    private ProductBatchResponse mapBatchToResponse(ProductBatch batch) {
+    public ProductBatchResponse mapBatchToResponse(ProductBatch batch) {
         return ProductBatchResponse.builder()
                 .id(batch.getId())
                 .productId(batch.getProduct().getId())
                 .productName(batch.getProduct().getName())
+                .productSku(batch.getProduct().getSku())
+                .categoryName(batch.getProduct().getCategory() != null
+                        ? batch.getProduct().getCategory().getName() : null)
+                .supplierId(batch.getSupplier() != null ? batch.getSupplier().getId() : null)
+                .supplierName(batch.getSupplier() != null ? batch.getSupplier().getName() : null)
                 .purchaseOrderId(batch.getPurchaseOrderId())
                 .quantity(batch.getQuantity())
                 .remainingQuantity(batch.getRemainingQuantity())
                 .costPrice(batch.getCostPrice())
                 .sellingPrice(batch.getSellingPrice())
+                .remainingValue(batch.getRemainingValue())
                 .expiryDate(batch.getExpiryDate())
                 .notes(batch.getNotes())
                 .isExpired(batch.isExpired())
                 .isAvailable(batch.isAvailable())
+                .isDepleted(batch.isDepleted())
                 .createdAt(batch.getCreatedAt())
                 .updatedAt(batch.getUpdatedAt())
                 .build();
-    }
-    @CacheEvict(value = "products", allEntries = true)
-    public List<ProductBatchResponse> createBatchesBulk(List<ProductBatchRequest> requests) {
-        log.info("Creating {} product batches in bulk", requests.size());
-
-        List<ProductBatchResponse> createdBatches = new ArrayList<>();
-
-        for (ProductBatchRequest request : requests) {
-            try {
-                // Get product
-                Product product = productRepository.findById(request.getProductId())
-                        .orElseThrow(() -> new RuntimeException("Product not found: " + request.getProductId()));
-
-                // Create batch
-                ProductBatch batch = ProductBatch.builder()
-                        .product(product)
-                        .purchaseOrderId(request.getPurchaseOrderId())
-                        .quantity(request.getQuantity())
-                        .remainingQuantity(request.getQuantity())
-                        .costPrice(request.getCostPrice())
-                        .sellingPrice(request.getSellingPrice())
-                        .expiryDate(request.getExpiryDate())
-                        .notes(request.getNotes())
-                        .build();
-
-                ProductBatch saved = productBatchRepository.save(batch);
-
-                // Update product stock and average cost
-                updateStock(product.getId(), request.getQuantity());
-                updateAverageCostPrice(product.getId(), request.getCostPrice(), request.getQuantity());
-
-                createdBatches.add(mapBatchToResponse(saved));
-
-            } catch (Exception e) {
-                log.error("Error creating batch for product {}: {}", request.getProductId(), e.getMessage());
-            }
-        }
-
-        log.info("Bulk batch create completed. Created: {}/{}", createdBatches.size(), requests.size());
-        return createdBatches;
     }
 }

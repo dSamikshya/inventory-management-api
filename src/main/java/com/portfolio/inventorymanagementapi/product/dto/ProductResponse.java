@@ -26,10 +26,13 @@ public class ProductResponse {
     private BigDecimal weight;
     private Integer totalQuantity;
     private Integer reorderThreshold;
+    private boolean active;
     private BigDecimal averageCostPrice;
     private BigDecimal sellingPrice;
     private Boolean isLowStock;
+
     private Integer batchCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
 }
