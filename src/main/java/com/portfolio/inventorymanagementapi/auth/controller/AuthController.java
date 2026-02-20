@@ -43,7 +43,7 @@ public class AuthController {
     }
 
     @GetMapping("/users")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get all users", description = "Get paginated list of all users (Admin only)")
     public ResponseEntity<Page<UserResponse>> getAllUsers(
             @RequestParam(defaultValue = "0") int page,
@@ -54,21 +54,21 @@ public class AuthController {
     }
 
     @GetMapping("/users/{id}")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get user by ID")
     public ResponseEntity<UserResponse> getUserById(@PathVariable Long id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
 
     @GetMapping("/users/email/{email}")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get user by email")
     public ResponseEntity<UserResponse> getUserByEmail(@PathVariable String email) {
         return ResponseEntity.ok(userService.getUserByEmail(email));
     }
 
     @GetMapping("/users/role/{role}")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Get users by role")
     public ResponseEntity<Page<UserResponse>> getUsersByRole(
             @PathVariable Role role,
@@ -80,7 +80,7 @@ public class AuthController {
     }
 
     @PutMapping("/users/{id}/deactivate")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Deactivate user", description = "Disable user account (Admin only)")
     public ResponseEntity<Void> deactivateUser(@PathVariable Long id) {
         userService.deactivateUser(id);
@@ -88,7 +88,7 @@ public class AuthController {
     }
 
     @PutMapping("/users/{id}/activate")
-    @SecurityRequirement(name = "Bearer Authentication")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Activate user", description = "Enable user account (Admin only)")
     public ResponseEntity<Void> activateUser(@PathVariable Long id) {
         userService.activateUser(id);
