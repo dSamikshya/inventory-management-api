@@ -54,6 +54,7 @@ public class ProductBatchService {
                 request.getProductId(), request.getProductSku(), request.getProductName());
 
         Category category = resolveOrCreateCategory(
+
                 request.getCategoryName(), request.getCategoryDescription());
         Supplier supplier = supplierService.findOrCreateSupplier(request.getSupplierName());
         Product product = resolveOrCreateProduct(request, category);
@@ -269,7 +270,7 @@ public class ProductBatchService {
 
     private Product resolveOrCreateProduct(ProductBatchRequest request, Category category) {
         // 1. By ID
-        if (request.getProductId() != null) {
+        if (request.getProductId() != null && request.getProductId() > 0) {
             return productRepository.findById(request.getProductId())
                     .orElseThrow(() -> new RuntimeException(
                             "Product not found with id: " + request.getProductId()));
@@ -278,6 +279,7 @@ public class ProductBatchService {
         if (request.getProductSku() != null && !request.getProductSku().isBlank()) {
             Optional<Product> found = productRepository.findBySku(request.getProductSku());
             if (found.isPresent()) return found.get();
+            return createNewProduct(request, category); // SKU not found = new variant, create immediately
         }
         // 3. By name
         if (request.getProductName() != null && !request.getProductName().isBlank()) {
@@ -304,6 +306,32 @@ public class ProductBatchService {
                 .build();
         return productRepository.save(product);
     }
+    private Product createNewProduct(ProductBatchRequest request, Category category) {
+        if (request.getProductName() == null || request.getProductName().isBlank()) {
+            throw new RuntimeException("Product name is required when creating a new product");
+        }
+        if (category == null) {
+            throw new RuntimeException("Category name is required when creating a new product");
+        }
+
+        log.info("Auto-creating product: {}", request.getProductName());
+        Product product = Product.builder()
+                .sku(request.getProductSku() != null && !request.getProductSku().isBlank()
+                        ? request.getProductSku()
+                        : generateSku(request.getProductName()))
+                .name(request.getProductName())
+                .description(request.getProductDescription())
+                .category(category)
+                .sellingPrice(request.getSellingPrice())
+                .reorderThreshold(10)
+                .active(true)
+                .build();
+
+        product = productRepository.saveAndFlush(product);
+        log.info("New product created: id={}, sku={}", product.getId(), product.getSku());
+        return product;
+    }
+
 
     private ProductBatch buildAndSaveBatch(ProductBatchRequest request,
                                            Product product, Supplier supplier) {

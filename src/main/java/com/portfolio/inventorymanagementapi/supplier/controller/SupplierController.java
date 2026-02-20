@@ -28,6 +28,8 @@ public class SupplierController {
 
     private final SupplierService supplierService;
 
+    // ==================== CREATE ====================
+
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Operation(summary = "Create a new supplier")
@@ -35,9 +37,11 @@ public class SupplierController {
         return ResponseEntity.status(HttpStatus.CREATED).body(supplierService.createSupplier(request));
     }
 
+    // ==================== READ ====================
+
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAREHOUSE', 'SALES')")
-    @Operation(summary = "Get all suppliers (paginated)")
+    @Operation(summary = "Get all suppliers (paginated, sortable)")
     public ResponseEntity<Page<SupplierResponse>> getAllSuppliers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
@@ -51,14 +55,14 @@ public class SupplierController {
 
     @GetMapping("/list")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAREHOUSE', 'SALES')")
-    @Operation(summary = "Get all active suppliers as a list (for dropdowns)")
+    @Operation(summary = "Get all suppliers as list (for dropdowns)")
     public ResponseEntity<List<SupplierResponse>> getAllSuppliersList() {
         return ResponseEntity.ok(supplierService.getAllSuppliersList());
     }
 
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAREHOUSE', 'SALES')")
-    @Operation(summary = "Get active suppliers (paginated)")
+    @Operation(summary = "Get active suppliers only (paginated)")
     public ResponseEntity<Page<SupplierResponse>> getActiveSuppliers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
@@ -69,7 +73,7 @@ public class SupplierController {
 
     @GetMapping("/search")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAREHOUSE', 'SALES')")
-    @Operation(summary = "Search suppliers")
+    @Operation(summary = "Search suppliers by name, contact, email, phone, city, country")
     public ResponseEntity<Page<SupplierResponse>> searchSuppliers(
             @RequestParam String searchTerm,
             @RequestParam(defaultValue = "0") int page,
@@ -77,6 +81,18 @@ public class SupplierController {
     ) {
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(supplierService.searchSuppliers(searchTerm, pageable));
+    }
+
+    @GetMapping("/country/{country}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAREHOUSE', 'SALES')")
+    @Operation(summary = "Filter suppliers by country")
+    public ResponseEntity<Page<SupplierResponse>> getSuppliersByCountry(
+            @PathVariable String country,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(supplierService.getSuppliersByCountry(country, pageable));
     }
 
     @GetMapping("/{id}")
@@ -93,9 +109,11 @@ public class SupplierController {
         return ResponseEntity.ok(supplierService.getSupplierByName(name));
     }
 
+    // ==================== UPDATE ====================
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @Operation(summary = "Update supplier")
+    @Operation(summary = "Update supplier details")
     public ResponseEntity<SupplierResponse> updateSupplier(
             @PathVariable Long id,
             @Valid @RequestBody SupplierRequest request
@@ -105,21 +123,23 @@ public class SupplierController {
 
     @PatchMapping("/{id}/deactivate")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @Operation(summary = "Deactivate supplier (soft delete)")
+    @Operation(summary = "Deactivate supplier (soft delete - keeps batch history)")
     public ResponseEntity<SupplierResponse> deactivateSupplier(@PathVariable Long id) {
         return ResponseEntity.ok(supplierService.deactivateSupplier(id));
     }
 
     @PatchMapping("/{id}/activate")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @Operation(summary = "Re-activate supplier")
+    @Operation(summary = "Re-activate a deactivated supplier")
     public ResponseEntity<SupplierResponse> activateSupplier(@PathVariable Long id) {
         return ResponseEntity.ok(supplierService.activateSupplier(id));
     }
 
+    // ==================== DELETE ====================
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Delete supplier (only if no batch history)")
+    @Operation(summary = "Hard delete supplier (only allowed if no batch history exists)")
     public ResponseEntity<Void> deleteSupplier(@PathVariable Long id) {
         supplierService.deleteSupplier(id);
         return ResponseEntity.noContent().build();

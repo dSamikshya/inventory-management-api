@@ -34,6 +34,12 @@ public class SupplierRequest {
     @Size(max = 500, message = "Address must not exceed 500 characters")
     private String address;
 
+    @Size(max = 100, message = "City must not exceed 100 characters")
+    private String city;
+
+    @Size(max = 100, message = "Country must not exceed 100 characters")
+    private String country;
+
     @Size(max = 100, message = "Website must not exceed 100 characters")
     private String website;
 }
