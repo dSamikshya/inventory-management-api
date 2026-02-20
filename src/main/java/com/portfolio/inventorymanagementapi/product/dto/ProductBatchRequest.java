@@ -16,29 +16,30 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class ProductBatchRequest {
 
-    /** Provide one of: productId, productSku, or productName. */
+    // ── Product identification (one of these is needed) ──────────────────────
     private Long productId;
 
-    @Size(max = 100)
+    @Size(max = 100, message = "SKU must not exceed 100 characters")
     private String productSku;
 
-    @Size(max = 200)
+    @Size(max = 255, message = "Product name must not exceed 255 characters")
     private String productName;
 
-    @Size(max = 1000)
+    @Size(max = 500, message = "Product description must not exceed 500 characters")
     private String productDescription;
 
-    @Size(max = 100)
+    // ── Category (required when auto-creating a product) ─────────────────────
+    @Size(max = 255, message = "Category name must not exceed 255 characters")
     private String categoryName;
 
-    @Size(max = 500)
+    @Size(max = 500, message = "Category description must not exceed 500 characters")
     private String categoryDescription;
 
-    /** Optional — auto-created if not found. */
-    @Size(max = 200)
+    // ── Supplier (optional — auto-created if not found) ──────────────────────
+    @Size(max = 200, message = "Supplier name must not exceed 200 characters")
     private String supplierName;
 
-    @Size(max = 100)
+    // ── Batch details ─────────────────────────────────────────────────────────
     private String purchaseOrderId;
 
     @NotNull(message = "Quantity is required")
@@ -55,6 +56,6 @@ public class ProductBatchRequest {
 
     private LocalDate expiryDate;
 
-    @Size(max = 500)
+    @Size(max = 500, message = "Notes must not exceed 500 characters")
     private String notes;
 }

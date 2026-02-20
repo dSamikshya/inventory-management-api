@@ -57,7 +57,10 @@ public class SupplierService {
                 .orElseThrow(() -> new RuntimeException("Supplier not found with name: " + name));
         return mapToResponse(supplier);
     }
-
+    @Transactional(readOnly = true)
+    public Page<SupplierResponse> getSuppliersByCountry(String country, Pageable pageable) {
+        return supplierRepository.findByCountry(country, pageable).map(this::mapToResponse);
+    }
     @Transactional(readOnly = true)
     public Page<SupplierResponse> getAllSuppliers(Pageable pageable) {
         return supplierRepository.findAll(pageable).map(this::mapToResponse);
@@ -67,6 +70,7 @@ public class SupplierService {
     public Page<SupplierResponse> getActiveSuppliers(Pageable pageable) {
         return supplierRepository.findByActiveTrue(pageable).map(this::mapToResponse);
     }
+
 
     @Transactional(readOnly = true)
     public Page<SupplierResponse> searchSuppliers(String searchTerm, Pageable pageable) {
@@ -174,4 +178,6 @@ public class SupplierService {
                 .updatedAt(supplier.getUpdatedAt())
                 .build();
     }
+
+
 }

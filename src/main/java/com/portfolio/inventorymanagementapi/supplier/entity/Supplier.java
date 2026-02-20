@@ -14,7 +14,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "suppliers")
+@Table(name = "suppliers", indexes = {
+        @Index(name = "idx_supplier_name", columnList = "name"),
+        @Index(name = "idx_supplier_email", columnList = "email"),
+        @Index(name = "idx_supplier_active", columnList = "active")
+})
 @Data
 @Builder
 @NoArgsConstructor
@@ -34,7 +38,7 @@ public class Supplier {
     @Column(length = 100)
     private String contactPerson;
 
-    @Column(length = 100)
+    @Column(unique = true, length = 100)
     private String email;
 
     @Column(length = 30)
@@ -44,6 +48,12 @@ public class Supplier {
     private String address;
 
     @Column(length = 100)
+    private String city;
+
+    @Column(length = 100)
+    private String country;
+
+    @Column(length = 100)
     private String website;
 
     @Builder.Default
@@ -51,7 +61,7 @@ public class Supplier {
     private boolean active = true;
 
     @Builder.Default
-    @OneToMany(mappedBy = "supplier", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "supplier", fetch = FetchType.LAZY)
     private List<ProductBatch> batches = new ArrayList<>();
 
     @CreationTimestamp

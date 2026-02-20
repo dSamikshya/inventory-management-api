@@ -20,6 +20,8 @@ public class SupplierResponse {
     private String email;
     private String phone;
     private String address;
+    private String city;
+    private String country;
     private String website;
     private boolean active;
     private Integer batchCount;
